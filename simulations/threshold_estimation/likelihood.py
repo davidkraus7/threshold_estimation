@@ -38,6 +38,16 @@ _CONC_IDX = np.array([0, 3, 5, 6])  # c1, c2, sigma1, sigma2
 
 _LOG_2PI = float(np.log(2.0 * np.pi))
 
+TOLERANCE = 1e-4
+"""Nelder-Mead convergence tolerance in `profile_loglik`.
+
+Only needs to be tight enough to rank neighbouring grid points, whose profile
+values differ by O(1). Measured over 60 replications at T = 1000 (check_tolerance.py):
+1e-4 leaves gamma_hat bit-identical to 1e-8 in both designs while running 1.2x
+to 2.0x faster; 1e-3 moves gamma_hat on 5 of 30 exogenous replications and is
+too loose.
+"""
+
 
 def kink_regressors(q: np.ndarray, gamma: float) -> tuple[np.ndarray, np.ndarray]:
     """(min(q - gamma, 0), max(q - gamma, 0)); rebuild at every gamma."""
@@ -153,7 +163,7 @@ def profile_loglik(
         return np.inf if not np.isfinite(value) else -value
 
     result = minimize(negative, free0, method="Nelder-Mead",
-                      options={"xatol": 1e-8, "fatol": 1e-8, "maxiter": 2000})
+                      options={"xatol": TOLERANCE, "fatol": TOLERANCE, "maxiter": 2000})
 
     free_hat = result.x
     theta_hat = assemble(free_hat, concentrate(free_hat, pi, q, gamma))

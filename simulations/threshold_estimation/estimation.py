@@ -60,30 +60,43 @@ def _profile_over(pi: np.ndarray, q: np.ndarray, grid: np.ndarray):
 
 
 def estimate(
-    pi: np.ndarray, q: np.ndarray, grid: np.ndarray | None = None, refine: bool = True
+    pi: np.ndarray,
+    q: np.ndarray,
+    grid: np.ndarray | None = None,
+    refine: bool = True,
+    n_basins: int = 8,
 ) -> Estimate:
     """Maximise the profile likelihood over gamma.
 
-    With `refine`, every order statistic between the neighbours of the coarse
-    maximum is re-evaluated, which recovers the resolution the thinned grid
-    gives up without paying for it everywhere.
+    The profile jumps at every order statistic, so a thinned grid samples an
+    unrepresentative value at each point and its argmax need not lie next to
+    the true maximum. Refining around that one point therefore fixes resolution
+    but not basin selection, and the failure gets worse as T grows and the peak
+    narrows -- which flattens the estimated convergence rate for numerical
+    reasons. Refining around the `n_basins` best coarse points instead costs a
+    few times more than a single-basin refinement and far less than evaluating
+    every order statistic.
     """
     grid = gamma_grid(q) if grid is None else np.asarray(grid, float)
     values, thetas = _profile_over(pi, q, grid)
-    best = int(np.argmax(values))
 
     if refine and grid.size > 1:
-        lo = grid[max(best - 1, 0)]
-        hi = grid[min(best + 1, grid.size - 1)]
-        fine = np.unique(q[(q >= lo) & (q <= hi)])
-        if fine.size > 2:
+        ranked = np.argsort(values)[::-1][:n_basins]
+        windows = [
+            q[(q >= grid[max(k - 1, 0)]) & (q <= grid[min(k + 1, grid.size - 1)])]
+            for k in ranked
+        ]
+        fine = np.unique(np.concatenate(windows)) if windows else np.empty(0)
+        fine = fine[~np.isin(fine, grid)]
+        if fine.size:
             fine_values, fine_thetas = _profile_over(pi, q, fine)
             grid = np.concatenate([grid, fine])
             values = np.concatenate([values, fine_values])
             thetas = np.vstack([thetas, fine_thetas])
             order = np.argsort(grid)
             grid, values, thetas = grid[order], values[order], thetas[order]
-            best = int(np.argmax(values))
+
+    best = int(np.argmax(values))
 
     # The profile is flat between consecutive order statistics, so the argmax
     # is an interval; take its midpoint.
