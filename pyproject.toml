@@ -1,5 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "threshold-estimation"
+version = "0.1.0"
+description = "Monte Carlo suite for threshold estimation in endogenously switching SVARs"
+requires-python = ">=3.12"
+
+# Installed with `pip install -e .` so that `from threshold_estimation import ...`
+# resolves from any working directory, including experiment scripts.
+[tool.setuptools]
+package-dir = { "" = "simulations" }
+packages = ["threshold_estimation"]
+
 [tool.pytest.ini_options]
-# Each workstream keeps its library and tests together; add paths as they appear.
+# Also on the path directly, so the tests run in a fresh clone before installing.
 pythonpath = ["simulations"]
 testpaths = ["simulations/tests"]
 addopts = "-rs"          # list skipped tests, so outstanding work stays visible

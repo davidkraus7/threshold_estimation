@@ -15,3 +15,6 @@ dependencies:
   - matplotlib>=3.9
   - sympy>=1.13       # symbolic derivation of the multivariate b_pm (roadmap.tex:328)
   - pytest>=8.0
+  - pip
+  - pip:
+      - -e .          # editable install, so imports resolve from any directory
