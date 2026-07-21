@@ -1,0 +1,6 @@
+[tool.pytest.ini_options]
+# Each workstream keeps its library and tests together; add paths as they appear.
+pythonpath = ["simulations"]
+testpaths = ["simulations/tests"]
+addopts = "-rs"          # list skipped tests, so outstanding work stays visible
+markers = ["slow: long-sample checks, excluded with -m 'not slow'"]

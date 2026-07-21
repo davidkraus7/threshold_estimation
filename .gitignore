@@ -1,0 +1,36 @@
+# Repository-wide ignores. Output that belongs to one workstream is ignored by
+# that workstream's own .gitignore (e.g. simulations/.gitignore).
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# ---- R / MATLAB, in case a workstream needs them ----
+.Rhistory
+.RData
+.Rproj.user/
+*.asv
+*.m~
+
+# ---- LaTeX ----
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

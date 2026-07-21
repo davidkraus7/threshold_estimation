@@ -1,0 +1,17 @@
+# Create with:  conda env create -f environment.yml
+# Activate with: conda activate thresh
+#
+# Kept deliberately short. Add a package only when a script imports it, and
+# pin the major version so a future conda solve cannot silently change results.
+name: thresh
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - numpy>=2.0
+  - scipy>=1.14
+  - pandas>=2.2
+  - pyarrow>=16       # parquet output for the replication caches
+  - matplotlib>=3.9
+  - sympy>=1.13       # symbolic derivation of the multivariate b_pm (roadmap.tex:328)
+  - pytest>=8.0

@@ -1,0 +1,4 @@
+# Monte Carlo output: regenerable from the experiment scripts, and large.
+# Keep the directory, drop the contents.
+results/*
+!results/.gitkeep
