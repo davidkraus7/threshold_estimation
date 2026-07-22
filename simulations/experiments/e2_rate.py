@@ -39,7 +39,10 @@ from threshold_estimation import config, dgp, estimation  # noqa: E402
 EXPERIMENT = "e2"
 
 QUICK = {"T_grid": (250, 500, 1000, 2000), "reps": 100, "grid_points": 96}
-FULL = {"T_grid": config.T_GRID, "reps": config.R_MAIN, "grid_points": config.MAX_GRID_POINTS}
+# Grid 96 is the validated setting (refinement resolves gamma below its own RMSE;
+# see check_grid.py). T grid is powers of two through 8192 for the rerun -- clean
+# doublings a referee reads as sample sizes, and one past the saved run's 4000.
+FULL = {"T_grid": (256, 512, 1024, 2048, 4096, 8192), "reps": config.R_MAIN, "grid_points": 96}
 
 
 def run_one(task) -> dict:
@@ -116,47 +119,126 @@ def summarise(data: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(out).sort_values(["design", "T"]).reset_index(drop=True)
 
 
-def fitted_slopes(table: pd.DataFrame) -> dict[str, float]:
-    """Slope of log2 RMSE(gamma_hat) on log2 T, by design."""
-    slopes = {}
-    for design, cell in table.groupby("design"):
-        slopes[design] = float(
-            np.polyfit(np.log2(cell["T"]), np.log2(cell["gamma_rmse"]), 1)[0]
-        )
-    return slopes
+COLOURS = {"endogenous": "#1f4e79", "exogenous": "#c0392b"}
+# Conjectured asymptotic rate per design, for the per-series reference guides.
+CONJECTURE = {"endogenous": (-1.0, r"slope $-1$"), "exogenous": (-0.5, r"slope $-1/2$")}
 
 
-def make_figure(table: pd.DataFrame, slopes: dict[str, float], path, provenance: str) -> None:
-    """Provenance goes on the figure itself, so a stale or underpowered
-    exhibit identifies itself instead of being mistaken for a finished one."""
-    fig, ax = plt.subplots(figsize=(6.4, 5.0))
-    colours = {"endogenous": "#1f4e79", "exogenous": "#c0392b"}
-    for design, cell in table.groupby("design"):
-        ax.plot(
-            np.log2(cell["T"]), np.log2(cell["gamma_rmse"]),
-            "o-", color=colours.get(design, None), lw=1.4, ms=5,
-            label=f"{design} (fitted slope {slopes[design]:+.2f})",
-        )
+def slope_and_se(data: pd.DataFrame, n_boot: int = 2000) -> dict[str, tuple[float, float]]:
+    """Slope of log2 RMSE(gamma_hat) on log2 T, with a bootstrap s.e.
 
-    anchor_x = np.log2(table["T"].min())
-    for slope, style, text in ((-1.0, ":", "slope $-1$"), (-0.5, "--", r"slope $-1/2$")):
-        anchor_y = np.log2(table["gamma_rmse"].max())
-        xs = np.log2(np.array(sorted(table["T"].unique()), dtype=float))
-        ax.plot(xs, anchor_y + slope * (xs - anchor_x), style, color="0.5", lw=1.0)
-        ax.annotate(text, (xs[-1], anchor_y + slope * (xs[-1] - anchor_x)),
-                    fontsize=8, color="0.4", va="center", ha="left")
+    The s.e. resamples replications within each (design, T) cell and refits,
+    so it reflects the Monte Carlo error in the RMSE points -- the honest way
+    to report "-0.94 (0.02)" rather than a bare "-0.94".
+    """
+    rng = np.random.default_rng(0)
+    out = {}
+    for design, cell in data.groupby("design"):
+        by_T = {T: g["gamma_error"].to_numpy() for T, g in cell.groupby("T")}
+        Ts = sorted(by_T)
+        x = np.log2(np.array(Ts, float))
+        rms = lambda e: np.sqrt(np.mean(e**2))  # noqa: E731
+        y = np.array([np.log2(rms(by_T[T])) for T in Ts])
+        slope = float(np.polyfit(x, y, 1)[0])
+        boots = np.empty(n_boot)
+        for b in range(n_boot):
+            yb = np.array([np.log2(rms(by_T[T][rng.integers(0, by_T[T].size, by_T[T].size)]))
+                           for T in Ts])
+            boots[b] = np.polyfit(x, yb, 1)[0]
+        out[design] = (slope, float(boots.std(ddof=1)))
+    return out
 
-    ax.set_xlabel(r"$\log_2 T$")
-    ax.set_ylabel(r"$\log_2 \mathrm{RMSE}(\hat\gamma)$")
-    ax.set_title("E2: convergence rate of the threshold estimator", fontsize=11)
-    ax.legend(fontsize=8, frameon=False)
 
-    R = int(table["R"].min())
-    warning = "  ***  TOO FEW REPLICATIONS TO INTERPRET  ***" if R < 25 else ""
-    fig.text(0.5, 0.015, provenance + warning, ha="center", fontsize=7,
-             color="#c0392b" if warning else "0.4")
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+def make_figure(table: pd.DataFrame, slopes: dict, path, caption: str) -> None:
+    """Two stacked panels sharing the T axis:
+
+      A  log2 RMSE vs log2 T, with MC error bars, per-series rate guides, and
+         slopes (with bootstrap s.e.) in the legend.
+      B  T * RMSE vs T -- flat means T-consistent, rising means slower than T;
+         a far more legible rate diagnostic than eyeballing guide lines.
+    """
+    Ts = np.array(sorted(table["T"].unique()), float)
+    x = np.log2(Ts)
+
+    fig, (ax, axd) = plt.subplots(
+        2, 1, figsize=(7.8, 8.6), sharex=True,
+        gridspec_kw={"height_ratios": [3.0, 1.55], "hspace": 0.13},
+    )
+    fig.subplots_adjust(top=0.90, bottom=0.15, left=0.115, right=0.955)
+
+    # ---- Panel A: log2 RMSE ------------------------------------------------
+    for design, cell in table.sort_values("T").groupby("design"):
+        c = COLOURS[design]
+        delta = 0.4 if design == "endogenous" else 0.0
+        lr = np.log2(cell["gamma_rmse"].to_numpy())
+        se_log = (cell["gamma_rmse_se"] / cell["gamma_rmse"] / np.log(2)).to_numpy()
+        slope, sse = slopes[design]
+        ax.errorbar(np.log2(cell["T"]), lr, yerr=se_log, fmt="o-", color=c,
+                    lw=1.7, ms=5.5, capsize=3, elinewidth=1.1, zorder=3,
+                    label=f"{design} switching of $q$  ($\\delta={delta:g}$):"
+                          f"   slope ${slope:+.2f}$  (s.e. {sse:.2f})")
+        # Rate guide anchored at THIS series' own first point, so it never
+        # implies one series beats another's rate.
+        ref, txt = CONJECTURE[design]
+        ax.plot(x, lr[0] + ref * (x - x[0]), ls=":", color=c, alpha=0.6, lw=1.2, zorder=1)
+        gy = lr[0] + ref * (x[-1] - x[0])
+        ax.annotate(txt, (x[-1], gy), color=c, alpha=0.85, fontsize=8.5,
+                    xytext=(-3, -7 if design == "endogenous" else 7),
+                    textcoords="offset points",
+                    ha="right", va="top" if design == "endogenous" else "bottom")
+    ax.set_ylabel(r"$\log_2 \mathrm{RMSE}(\hat\gamma)$", fontsize=11)
+    ax.legend(fontsize=9, frameon=False, loc="lower left")
+    ax.margins(x=0.08)
+
+    # ---- Panel B: T * RMSE -------------------------------------------------
+    for design, cell in table.sort_values("T").groupby("design"):
+        c = COLOURS[design]
+        tr = (cell["T"] * cell["gamma_rmse"]).to_numpy()
+        tre = (cell["T"] * cell["gamma_rmse_se"]).to_numpy()
+        axd.errorbar(np.log2(cell["T"]), tr, yerr=tre, fmt="o-", color=c,
+                     lw=1.7, ms=5.5, capsize=3, elinewidth=1.1)
+    axd.set_ylabel(r"$T \cdot \mathrm{RMSE}(\hat\gamma)$", fontsize=11)
+    axd.annotate(r"flat $\Rightarrow$ $T$-consistent;   rising $\Rightarrow$ slower than $T$",
+                 xy=(0.5, 0.92), xycoords="axes fraction", ha="center", va="top",
+                 fontsize=9, color="0.35")
+    axd.set_xticks(x)
+    axd.set_xticklabels([f"{int(t)}" for t in Ts])
+    axd.set_xlabel(r"sample size $T$  (spaced by $\log_2 T$)", fontsize=11)
+
+    fig.suptitle(r"Convergence rate of $\hat\gamma$ under endogenous vs exogenous switching",
+                 fontsize=13, y=0.965)
+    fig.text(0.5, 0.085, caption, ha="center", va="top", fontsize=7.4, color="0.4",
+             linespacing=1.5)
     fig.savefig(path)
+
+
+def build_caption(data: pd.DataFrame, grid_points: int) -> str:
+    """Everything a reader needs to judge whether grid resolution binds.
+
+    Three short lines so nothing runs past the figure edge.
+    """
+    Rmin = int(data.groupby(["design", "T"]).size().min())
+    Tmax = int(data["T"].max())
+    ranges = []
+    for design in config.DESIGNS:
+        _, q = dgp.simulate(design, Tmax, config.standard_shocks("e2", 0, n=Tmax))
+        g = estimation.gamma_grid(q, max_points=grid_points)
+        ranges.append(f"{design.name[:3]} [{g.min():+.1f},{g.max():+.1f}] step {np.median(np.diff(g)):.2f}")
+    if "estimator" in data.columns:
+        estimator = str(data["estimator"].iloc[0])
+    elif str(data["git_sha"].iloc[0]).startswith("5d99bc1"):
+        estimator = "interval midpoint (pre-fix)"
+    else:
+        estimator = "argmax order statistic"
+    d = config.ENDOGENOUS
+    return (
+        f"$R={Rmin}$/cell  ·  grid $={grid_points}$ pts  ·  "
+        f"$\\gamma_0={d.gamma0:g}$  ·  kink $\\kappa_2-\\kappa_1={d.kappa2 - d.kappa1:g}$ (both)"
+        f"  ·  $\\sigma_1=\\sigma_2=1$  ·  conditional-mean jump $=0$ (continuous kink)\n"
+        f"density jump $x={config.ENDOGENOUS.x:.2f}$ (endo) / ${config.EXOGENOUS.x:.2f}$ (exo)"
+        f"  ·  grid at $T={Tmax}$: {ranges[0]}, {ranges[1]}\n"
+        f"estimator: {estimator}  ·  git {data['git_sha'].iloc[0]}"
+    )
 
 
 def main() -> None:
@@ -190,17 +272,18 @@ def main() -> None:
               f" R = {preset['reps']}, grid = {preset['grid_points']} points")
         data = simulate_all(preset, args.workers, not args.no_refine)
         data["git_sha"] = config.git_sha()
+        data["estimator"] = "argmax order statistic"
+        data["grid_points"] = preset["grid_points"]
         data.to_parquet(cache)
 
+    grid_points = int(data["grid_points"].iloc[0]) if "grid_points" in data.columns \
+        else preset["grid_points"]
     table = summarise(data)
-    slopes = fitted_slopes(table)
+    slopes = slope_and_se(data)
     R = int(table["R"].min())
-    provenance = (
-        f"R = {R} replications per cell,  grid = {preset['grid_points']} points,"
-        f"  git {data['git_sha'].iloc[0]}"
-    )
     table.to_csv(config.RESULTS / f"e2_rate{suffix}_table1.csv", index=False)
-    make_figure(table, slopes, config.RESULTS / f"e2_rate{suffix}.pdf", provenance)
+    make_figure(table, slopes, config.RESULTS / f"e2_rate{suffix}.pdf",
+                build_caption(data, grid_points))
     if R < 25:
         print(f"\nWARNING: only {R} replications per cell -- slopes are noise, not results.")
 
@@ -210,10 +293,10 @@ def main() -> None:
         table[["design", "T", "R", "gamma_bias", "gamma_sd", "gamma_rmse",
                "gamma_rmse_se", "kink_rmse"]].to_string(index=False, float_format="%.5f")
     )
-    print("\nFitted slopes of log2 RMSE(gamma_hat) on log2 T:")
-    for design, slope in slopes.items():
+    print("\nFitted slopes of log2 RMSE(gamma_hat) on log2 T   [slope (bootstrap s.e.)]:")
+    for design, (slope, sse) in slopes.items():
         expected = -1.0 if design == "endogenous" else -0.5
-        print(f"  {design:12s} {slope:+.3f}   (conjectured {expected:+.1f})")
+        print(f"  {design:12s} {slope:+.3f} ({sse:.3f})   (conjectured {expected:+.1f})")
     print(f"\nwrote {cache.name}, e2_rate{suffix}.pdf, e2_rate{suffix}_table1.csv")
 
 
