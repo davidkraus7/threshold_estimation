@@ -1,52 +1,62 @@
-# MPhil thesis code
+# Threshold Estimation in Endogenously Switching SVARs
 
-Code for the thesis on estimating the regime threshold `gamma_0` in censored
-and kinked SVARs, where the literature treats it as known. Documents and
-literature live alongside this repository, in `../01. literature` and
-`../02. docs`.
+MPhil thesis project. Estimates the regime threshold
+`gamma_0` in censored/kinked and endogenous regime switching SVARs, where the
+existing literature (Mavroeidis 2021; Duffy–Mavroeidis 2026) takes it as given.
+The literature and write-ups live alongside this repository in
+`../01. literature` and `../02. docs`.
 
-## Workstreams
+The central result is that `gamma_0` is *super-consistently* estimable — at rate
+`T` rather than the usual `sqrt(T)` — even though the model's conditional mean is
+continuous, a kink rather than a jump. The mechanism is simultaneity: the
+likelihood's Jacobian is regime-dependent, so the density of the threshold
+variable jumps at `gamma_0` by the factor `x = (1 - delta*kappa_2)/(1 - delta*kappa_1)`.
+When the system is simultaneous (`x != 1`) that density break pins the threshold
+down at rate `T`; when it is recursive (`delta = 0`, so `x = 1`) the break
+vanishes and the rate falls to `sqrt(T)`. Simultaneity is the source of
+identification, not an obstacle to it.
 
-| Directory | Status |
-|---|---|
-| `simulations/` | Monte Carlo evidence on the rate of convergence of `gamma_hat`. Active. |
+## Project Structure
 
-Later work — estimation for richer model classes, and the empirical
-application — gets its own sibling directory. Anything shared by more than one
-workstream moves up to this level; until then, code stays inside the workstream
-that uses it.
-
-## Setup
-
-One environment serves the whole repository:
-
-```sh
-conda env create -f environment.yml
-conda activate thresh
-pytest
+```
+├── simulations/       Monte Carlo suite — active workstream (see simulations/README.md)
+├── environment.yml    conda environment `thresh`
+├── pyproject.toml     package and pytest configuration
+├── CLAUDE.md          model, notation, and working rules
+└── README.md          this file
 ```
 
-Scripts are run from this directory, the repository root:
+Later workstreams — estimation for richer model classes, and the empirical
+application — get their own sibling directories. Code stays inside the
+workstream that uses it until something is shared, at which point it moves up to
+the repository root.
 
-```sh
-python simulations/experiments/e2_rate.py
-```
+## Quick Start
+
+1. **Install** Miniconda or Anaconda.
+2. **Create the environment**: `conda env create -f environment.yml`.
+3. **Activate it**: `conda activate thresh`.
+4. **Run the tests**: `pytest`.
+5. **Run an experiment** from this directory (the repository root):
+   `python simulations/experiments/e2_rate.py`.
+6. **View outputs** in `simulations/results/` (PDF figures, CSV tables).
+
+## Dependencies
+
+Managed via `conda` (`environment.yml`, environment name `thresh`, Python 3.12).
+Key packages:
+
+- `numpy`, `scipy` -- numerics and optimisation
+- `pandas`, `pyarrow` -- data handling and parquet caches
+- `matplotlib` -- figures
+- `sympy` -- symbolic derivations
+- `pytest` -- tests
 
 ## Conventions
 
-- Each workstream owns its outputs and ignores them in its own `.gitignore`;
-  the root `.gitignore` covers only language and OS artefacts.
-- Results are never tracked. They carry the commit hash that produced them
-  instead, so a figure can be traced back to its code.
-- Tag the repository whenever exhibits go to the supervisor:
-  `git tag -a exhibits-2026-07-24 -m "Figures 1-4, Tables 1-2"`.
-
-## Remote
-
-Not configured; `gh` is not installed on this machine. Once a GitHub
-repository exists:
-
-```sh
-git remote add origin git@github.com:davidkraus7/threshold_estimation.git
-git push -u origin main
-```
+- Results are never tracked in git; each results file carries the commit hash
+  (`git_sha`) that produced it, so any figure traces back to its code.
+- Commit before any run you intend to keep — an uncommitted tree stamps results
+  `-dirty`.
+- Tag the repository when exhibits go to the supervisor:
+  `git tag -a exhibits-2026-07-24 -m "..."`.
