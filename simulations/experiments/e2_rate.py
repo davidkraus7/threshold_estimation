@@ -149,7 +149,7 @@ def slope_and_se(data: pd.DataFrame, n_boot: int = 2000) -> dict[str, tuple[floa
     return out
 
 
-def make_figure(table: pd.DataFrame, slopes: dict, path, caption: str) -> None:
+def make_figure(table: pd.DataFrame, slopes: dict, path) -> None:
     """Two stacked panels sharing the T axis:
 
       A  log2 RMSE vs log2 T, with MC error bars, per-series rate guides, and
@@ -164,7 +164,7 @@ def make_figure(table: pd.DataFrame, slopes: dict, path, caption: str) -> None:
         2, 1, figsize=(7.8, 8.6), sharex=True,
         gridspec_kw={"height_ratios": [3.0, 1.55], "hspace": 0.13},
     )
-    fig.subplots_adjust(top=0.90, bottom=0.15, left=0.115, right=0.955)
+    fig.subplots_adjust(top=0.92, bottom=0.09, left=0.115, right=0.955)
 
     # ---- Panel A: log2 RMSE ------------------------------------------------
     for design, cell in table.sort_values("T").groupby("design"):
@@ -198,47 +198,13 @@ def make_figure(table: pd.DataFrame, slopes: dict, path, caption: str) -> None:
         axd.errorbar(np.log2(cell["T"]), tr, yerr=tre, fmt="o-", color=c,
                      lw=1.7, ms=5.5, capsize=3, elinewidth=1.1)
     axd.set_ylabel(r"$T \cdot \mathrm{RMSE}(\hat\gamma)$", fontsize=11)
-    axd.annotate(r"flat $\Rightarrow$ $T$-consistent;   rising $\Rightarrow$ slower than $T$",
-                 xy=(0.5, 0.92), xycoords="axes fraction", ha="center", va="top",
-                 fontsize=9, color="0.35")
     axd.set_xticks(x)
     axd.set_xticklabels([f"{int(t)}" for t in Ts])
     axd.set_xlabel(r"sample size $T$  (spaced by $\log_2 T$)", fontsize=11)
 
-    fig.suptitle(r"Convergence rate of $\hat\gamma$ under endogenous vs exogenous switching",
-                 fontsize=13, y=0.965)
-    fig.text(0.5, 0.085, caption, ha="center", va="top", fontsize=7.4, color="0.4",
-             linespacing=1.5)
+    fig.suptitle(r"E2: convergence rate of $\hat\gamma$ under endogenous vs exogenous switching",
+                 fontsize=13, fontweight="bold", y=0.965)
     fig.savefig(path)
-
-
-def build_caption(data: pd.DataFrame, grid_points: int) -> str:
-    """Everything a reader needs to judge whether grid resolution binds.
-
-    Three short lines so nothing runs past the figure edge.
-    """
-    Rmin = int(data.groupby(["design", "T"]).size().min())
-    Tmax = int(data["T"].max())
-    ranges = []
-    for design in config.DESIGNS:
-        _, q = dgp.simulate(design, Tmax, config.standard_shocks("e2", 0, n=Tmax))
-        g = estimation.gamma_grid(q, max_points=grid_points)
-        ranges.append(f"{design.name[:3]} [{g.min():+.1f},{g.max():+.1f}] step {np.median(np.diff(g)):.2f}")
-    if "estimator" in data.columns:
-        estimator = str(data["estimator"].iloc[0])
-    elif str(data["git_sha"].iloc[0]).startswith("5d99bc1"):
-        estimator = "interval midpoint (pre-fix)"
-    else:
-        estimator = "argmax order statistic"
-    d = config.ENDOGENOUS
-    return (
-        f"$R={Rmin}$/cell  ·  grid $={grid_points}$ pts  ·  "
-        f"$\\gamma_0={d.gamma0:g}$  ·  kink $\\kappa_2-\\kappa_1={d.kappa2 - d.kappa1:g}$ (both)"
-        f"  ·  $\\sigma_1=\\sigma_2=1$  ·  conditional-mean jump $=0$ (continuous kink)\n"
-        f"density jump $x={config.ENDOGENOUS.x:.2f}$ (endo) / ${config.EXOGENOUS.x:.2f}$ (exo)"
-        f"  ·  grid at $T={Tmax}$: {ranges[0]}, {ranges[1]}\n"
-        f"estimator: {estimator}  ·  git {data['git_sha'].iloc[0]}"
-    )
 
 
 def main() -> None:
@@ -276,14 +242,11 @@ def main() -> None:
         data["grid_points"] = preset["grid_points"]
         data.to_parquet(cache)
 
-    grid_points = int(data["grid_points"].iloc[0]) if "grid_points" in data.columns \
-        else preset["grid_points"]
     table = summarise(data)
     slopes = slope_and_se(data)
     R = int(table["R"].min())
     table.to_csv(config.RESULTS / f"e2_rate{suffix}_table1.csv", index=False)
-    make_figure(table, slopes, config.RESULTS / f"e2_rate{suffix}.pdf",
-                build_caption(data, grid_points))
+    make_figure(table, slopes, config.RESULTS / f"e2_rate{suffix}.pdf")
     if R < 25:
         print(f"\nWARNING: only {R} replications per cell -- slopes are noise, not results.")
 
