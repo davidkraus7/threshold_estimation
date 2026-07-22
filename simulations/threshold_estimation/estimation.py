@@ -98,11 +98,16 @@ def estimate(
 
     best = int(np.argmax(values))
 
-    # The profile is flat between consecutive order statistics, so the argmax
-    # is an interval; take its midpoint.
-    gamma_star = grid[best]
-    above = q[q > gamma_star]
-    gamma_hat = float(0.5 * (gamma_star + above.min())) if above.size else float(gamma_star)
+    # gamma_hat is the maximising order statistic itself. The midpoint-of-interval
+    # convention (Yu 2012) applies to DISCONTINUOUS threshold regression, where the
+    # criterion is flat between order statistics and any point in the argmax
+    # interval is equivalent. This model is a CONTINUOUS kink: the Jacobian term is
+    # a step function but the concentrated Gaussian part varies smoothly with gamma,
+    # so the profile is not flat between order statistics -- it falls away into the
+    # gaps, and the maximiser is the order statistic, not the interval midpoint.
+    # Taking the midpoint here places gamma_hat at a strictly lower-likelihood point,
+    # offset to the right by half the (data-dependent) gap to the next order statistic.
+    gamma_hat = float(grid[best])
 
     return Estimate(
         gamma_hat=gamma_hat,
